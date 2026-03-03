@@ -10,9 +10,9 @@ export async function DELETE(
   { params }: { params: { inviteId: string } }
 ) {
   const session = await auth();
-  const workspaceId = (session as any)?.workspaceId;
-  const actorId = (session as any)?.userId;
-  const actorRole = (session as any)?.role;
+  const workspaceId = (session as unknown as { workspaceId?: string })?.workspaceId;
+  const actorId = (session as unknown as { userId?: string })?.userId;
+  const actorRole = (session as unknown as { role?: string })?.role;
 
   if (!session || !workspaceId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -34,10 +34,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Invitation not found" }, { status: 404 });
   }
 
-  await db
-    .update(invitations)
-    .set({ status: "expired" })
-    .where(eq(invitations.id, params.inviteId));
+  await db.delete(invitations).where(eq(invitations.id, params.inviteId));
 
   await createAuditLog({
     workspaceId,

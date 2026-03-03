@@ -2,11 +2,11 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, invitations } from "@teamkit/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 
 export async function GET() {
   const session = await auth();
-  const workspaceId = (session as any)?.workspaceId;
+  const workspaceId = (session as unknown as { workspaceId?: string })?.workspaceId;
 
   if (!session || !workspaceId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -15,7 +15,7 @@ export async function GET() {
   const pending = await db.query.invitations.findMany({
     where: and(
       eq(invitations.workspaceId, workspaceId),
-      eq(invitations.status, "pending")
+      isNull(invitations.acceptedAt)
     ),
   });
 

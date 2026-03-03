@@ -19,19 +19,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid token" }, { status: 404 });
   }
 
-  if (invite.status !== "pending") {
+  if (invite.acceptedAt) {
     return NextResponse.json(
-      { error: "Invitation already used or expired", code: "INVITE_USED" },
+      { error: "Invitation already used", code: "INVITE_USED" },
       { status: 410 }
     );
   }
 
   if (new Date() > invite.expiresAt) {
-    // Mark as expired
-    await db
-      .update(invitations)
-      .set({ status: "expired" })
-      .where(eq(invitations.id, invite.id));
     return NextResponse.json(
       { error: "Invitation expired", code: "INVITE_EXPIRED" },
       { status: 410 }
@@ -39,7 +34,7 @@ export async function GET(req: NextRequest) {
   }
 
   const session = await auth();
-  const userId = (session as any)?.userId;
+  const userId = (session as unknown as { userId?: string })?.userId;
 
   if (!session || !userId) {
     // Redirect to login with callback
@@ -72,7 +67,7 @@ export async function GET(req: NextRequest) {
     // Already a member — mark invite accepted
     await db
       .update(invitations)
-      .set({ status: "accepted" })
+      .set({ acceptedAt: new Date() })
       .where(eq(invitations.id, invite.id));
     return NextResponse.json(
       { success: true, alreadyMember: true, workspaceId: invite.workspaceId },
@@ -93,7 +88,7 @@ export async function GET(req: NextRequest) {
   // Mark invitation as accepted
   await db
     .update(invitations)
-    .set({ status: "accepted" })
+    .set({ acceptedAt: new Date() })
     .where(eq(invitations.id, invite.id));
 
   await createAuditLog({
@@ -102,8 +97,6 @@ export async function GET(req: NextRequest) {
     action: "member_accepted",
     targetType: "invitation",
     targetId: invite.id,
-    metadata: { email: invite.email, role: invite.role },
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
   });
 
   return NextResponse.json({

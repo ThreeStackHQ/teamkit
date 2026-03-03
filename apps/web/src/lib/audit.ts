@@ -23,6 +23,25 @@ interface LogEventParams {
   req?: NextRequest;
 }
 
+/** Alias used by session-auth routes (Wren convention) */
+export async function createAuditLog(params: {
+  workspaceId: string;
+  actorId?: string | null;
+  action: string;
+  targetType?: string;
+  targetId?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<void> {
+  await logEvent({
+    workspaceId: params.workspaceId,
+    actorId: params.actorId,
+    action: params.action as AuditActionType,
+    resourceType: params.targetType,
+    resourceId: params.targetId,
+    metadata: params.metadata,
+  });
+}
+
 export async function logEvent(params: LogEventParams): Promise<void> {
   const { workspaceId, actorId, action, resourceType, resourceId, metadata, req } = params;
 

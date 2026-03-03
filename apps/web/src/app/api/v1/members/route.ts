@@ -6,9 +6,9 @@ import {
   teamMembers,
   users,
   invitations,
-  subscriptions,
+  workspaces,
 } from "@teamkit/db";
-import { eq, and, count } from "drizzle-orm";
+import { eq, and, count, isNull } from "drizzle-orm";
 import { sendInvitationEmail } from "@/lib/email";
 import { createAuditLog } from "@/lib/audit";
 import { randomUUID } from "crypto";
@@ -31,11 +31,10 @@ export async function GET() {
       id: teamMembers.id,
       role: teamMembers.role,
       createdAt: teamMembers.createdAt,
-      updatedAt: teamMembers.updatedAt,
       userId: teamMembers.userId,
       name: users.name,
       email: users.email,
-      avatarUrl: users.avatarUrl,
+      avatarUrl: users.image,
     })
     .from(teamMembers)
     .innerJoin(users, eq(teamMembers.userId, users.id))
@@ -71,11 +70,12 @@ export async function POST(req: NextRequest) {
   const { email, role } = parsed.data;
 
   // Check member limit
-  const sub = await db.query.subscriptions.findFirst({
-    where: eq(subscriptions.workspaceId, workspaceId),
+  const ws = await db.query.workspaces.findFirst({
+    where: eq(workspaces.id, workspaceId),
   });
-  const plan = sub?.plan ?? "free";
-  const limit = sub?.seatCount ?? 5;
+  const plan = ws?.plan ?? "free";
+  const PLAN_MEMBER_LIMITS: Record<string, number> = { free: 5, indie: 25, pro: Infinity };
+  const limit = PLAN_MEMBER_LIMITS[plan] ?? 5;
 
   const [{ memberCount }] = await db
     .select({ memberCount: count() })
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
     .where(
       and(
         eq(invitations.workspaceId, workspaceId),
-        eq(invitations.status, "pending")
+        isNull(invitations.acceptedAt)
       )
     );
 
@@ -123,7 +123,6 @@ export async function POST(req: NextRequest) {
       role,
       token,
       invitedById: actorId,
-      status: "pending",
       expiresAt,
     })
     .returning();
@@ -133,10 +132,7 @@ export async function POST(req: NextRequest) {
     where: eq(users.id, actorId),
   });
 
-  // Get workspace name
-  const ws = await db.query.workspaces.findFirst({
-    where: (w, { eq }) => eq(w.id, workspaceId),
-  });
+  // Reuse ws from plan check above for workspace name
 
   // Send invitation email (non-blocking)
   sendInvitationEmail({
@@ -154,7 +150,6 @@ export async function POST(req: NextRequest) {
     targetType: "invitation",
     targetId: invitation?.id,
     metadata: { email, role },
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
   });
 
   return NextResponse.json(

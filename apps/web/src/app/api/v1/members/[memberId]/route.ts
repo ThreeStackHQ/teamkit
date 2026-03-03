@@ -72,7 +72,7 @@ export async function PATCH(
 
   const [updated] = await db
     .update(teamMembers)
-    .set({ role, updatedAt: new Date() })
+    .set({ role })
     .where(eq(teamMembers.id, params.memberId))
     .returning();
 
@@ -92,7 +92,6 @@ export async function PATCH(
       oldRole,
       newRole: role,
     },
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
   });
 
   return NextResponse.json({ member: updated });
@@ -149,7 +148,6 @@ export async function DELETE(
     targetType: "team_member",
     targetId: member.id,
     metadata: { userId: member.userId, email: targetUser?.email },
-    ipAddress: req.headers.get("x-forwarded-for") ?? undefined,
   });
 
   return NextResponse.json({ success: true });

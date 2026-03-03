@@ -1,8 +1,8 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db, customRoles, teamMembers, subscriptions } from "@teamkit/db";
-import { eq, and, count } from "drizzle-orm";
+import { db, customRoles, workspaces } from "@teamkit/db";
+import { eq, and } from "drizzle-orm";
 import { createAuditLog } from "@/lib/audit";
 import { validatePermissions } from "@/lib/permissions";
 import { z } from "zod";
@@ -17,18 +17,18 @@ export async function PATCH(
   { params }: { params: { roleId: string } }
 ) {
   const session = await auth();
-  const workspaceId = (session as any)?.workspaceId;
-  const actorId = (session as any)?.userId;
-  const actorRole = (session as any)?.role;
+  const workspaceId = (session as unknown as { workspaceId?: string })?.workspaceId;
+  const actorId = (session as unknown as { userId?: string })?.userId;
+  const actorRole = (session as unknown as { role?: string })?.role;
 
   if (!session || !workspaceId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const sub = await db.query.subscriptions.findFirst({
-    where: eq(subscriptions.workspaceId, workspaceId),
+  const ws = await db.query.workspaces.findFirst({
+    where: eq(workspaces.id, workspaceId),
   });
-  if (sub?.plan !== "pro") {
+  if (ws?.plan !== "pro") {
     return NextResponse.json(
       { error: "Custom roles are a Pro feature" },
       { status: 402 }
@@ -64,7 +64,6 @@ export async function PATCH(
     .set({
       ...(name ? { name } : {}),
       ...(permissions !== undefined ? { permissions } : {}),
-      updatedAt: new Date(),
     })
     .where(eq(customRoles.id, params.roleId))
     .returning();
@@ -86,18 +85,18 @@ export async function DELETE(
   { params }: { params: { roleId: string } }
 ) {
   const session = await auth();
-  const workspaceId = (session as any)?.workspaceId;
-  const actorId = (session as any)?.userId;
-  const actorRole = (session as any)?.role;
+  const workspaceId = (session as unknown as { workspaceId?: string })?.workspaceId;
+  const actorId = (session as unknown as { userId?: string })?.userId;
+  const actorRole = (session as unknown as { role?: string })?.role;
 
   if (!session || !workspaceId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const sub = await db.query.subscriptions.findFirst({
-    where: eq(subscriptions.workspaceId, workspaceId),
+  const ws = await db.query.workspaces.findFirst({
+    where: eq(workspaces.id, workspaceId),
   });
-  if (sub?.plan !== "pro") {
+  if (ws?.plan !== "pro") {
     return NextResponse.json(
       { error: "Custom roles are a Pro feature" },
       { status: 402 }
@@ -119,21 +118,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Role not found" }, { status: 404 });
   }
 
-  // Check if any members have this role
-  const [{ memberCount }] = await db
-    .select({ memberCount: count() })
-    .from(teamMembers)
-    .where(eq(teamMembers.roleId, params.roleId));
-
-  if (memberCount > 0) {
-    return NextResponse.json(
-      {
-        error: `Cannot delete role: ${memberCount} member(s) have this role`,
-        code: "ROLE_IN_USE",
-      },
-      { status: 409 }
-    );
-  }
+  // TODO: check member count once team_members has a roleId FK for custom roles
 
   await db.delete(customRoles).where(eq(customRoles.id, params.roleId));
 

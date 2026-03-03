@@ -131,3 +131,6 @@ export const authOptions: NextAuthOptions = {
 export async function getServerSession() {
   return nextAuthGetServerSession(authOptions);
 }
+
+/** Alias used by session-auth routes */
+export const auth = getServerSession;

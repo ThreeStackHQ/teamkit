@@ -1,10 +1,10 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { db, invitations, workspaces } from "@teamkit/db";
-import { eq, and, lt, gt, lte, sql } from "drizzle-orm";
+import { eq, and, lt, gt, isNull } from "drizzle-orm";
 import {
-  sendInvitationReminderEmail,
-  sendInvitationExpiredEmail,
+  sendInviteReminderEmail as sendInvitationReminderEmail,
+  sendInviteExpiredEmail as sendInvitationExpiredEmail,
 } from "@/lib/email";
 
 export async function GET(req: NextRequest) {
@@ -19,20 +19,16 @@ export async function GET(req: NextRequest) {
   const now = new Date();
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-  // 1. Find expired pending invitations
+  // 1. Find expired pending invitations (not yet accepted, past expiry)
   const expired = await db.query.invitations.findMany({
     where: and(
-      eq(invitations.status, "pending"),
+      isNull(invitations.acceptedAt),
       lt(invitations.expiresAt, now)
     ),
   });
 
   let expiredCount = 0;
   for (const invite of expired) {
-    await db
-      .update(invitations)
-      .set({ status: "expired" })
-      .where(eq(invitations.id, invite.id));
 
     const ws = await db.query.workspaces.findFirst({
       where: (w, { eq }) => eq(w.id, invite.workspaceId),
@@ -49,7 +45,7 @@ export async function GET(req: NextRequest) {
   // 2. Send reminders for invitations created >24h ago that haven't expired yet
   const needsReminder = await db.query.invitations.findMany({
     where: and(
-      eq(invitations.status, "pending"),
+      isNull(invitations.acceptedAt),
       lt(invitations.createdAt, yesterday),
       gt(invitations.expiresAt, now)
     ),

@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db, auditLogs, users, subscriptions } from "@teamkit/db";
+import { db, auditLogs, users, workspaces } from "@teamkit/db";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
@@ -24,10 +24,10 @@ export async function GET(req: NextRequest) {
 
   // Check for CSV export — Pro only
   if (format === "csv") {
-    const sub = await db.query.subscriptions.findFirst({
-      where: eq(subscriptions.workspaceId, workspaceId),
+    const ws = await db.query.workspaces.findFirst({
+      where: eq(workspaces.id, workspaceId),
     });
-    if (sub?.plan !== "pro") {
+    if (ws?.plan !== "pro") {
       return NextResponse.json(
         { error: "CSV export is a Pro feature", code: "PLAN_REQUIRED" },
         { status: 402 }
@@ -47,8 +47,8 @@ export async function GET(req: NextRequest) {
       workspaceId: auditLogs.workspaceId,
       actorId: auditLogs.actorId,
       action: auditLogs.action,
-      targetType: auditLogs.targetType,
-      targetId: auditLogs.targetId,
+      targetType: auditLogs.resourceType,
+      targetId: auditLogs.resourceId,
       metadata: auditLogs.metadata,
       ipAddress: auditLogs.ipAddress,
       createdAt: auditLogs.createdAt,
