@@ -1,10 +1,16 @@
 import { Resend } from "resend";
+import { env } from "./env";
 
-function getResend() {
-  return new Resend(process.env.RESEND_API_KEY ?? "re_placeholder");
+let _resend: Resend | undefined;
+
+function getResend(): Resend {
+  if (!_resend) {
+    _resend = new Resend(env.RESEND_API_KEY);
+  }
+  return _resend;
 }
 
-function escapeHtml(str: string): string {
+export function escapeHtml(str: string): string {
   return str
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -13,97 +19,121 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#x27;");
 }
 
-export async function sendInvitationEmail({
-  to,
-  workspaceName,
-  inviterName,
-  role,
-  token,
-}: {
+interface SendInvitationEmailParams {
   to: string;
   workspaceName: string;
   inviterName: string;
   role: string;
-  token: string;
-}) {
-  const acceptUrl = `${process.env.NEXTAUTH_URL}/invite/accept?token=${token}`;
+  acceptUrl: string;
+}
+
+export async function sendInvitationEmail(params: SendInvitationEmailParams) {
+  const { to, workspaceName, inviterName, role, acceptUrl } = params;
+
   const safeWorkspace = escapeHtml(workspaceName);
   const safeInviter = escapeHtml(inviterName);
   const safeRole = escapeHtml(role);
   const safeTo = escapeHtml(to);
 
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>You've been invited to ${safeWorkspace}</title></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f9fafb; margin: 0; padding: 40px 20px;">
+  <div style="max-width: 480px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 40px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+    <div style="width: 48px; height: 48px; background: #8b5cf6; border-radius: 10px; margin-bottom: 24px; display: flex; align-items: center; justify-content: center;">
+      <span style="color: #fff; font-size: 24px; font-weight: bold; line-height: 48px; display: block; text-align: center;">T</span>
+    </div>
+    <h1 style="color: #111827; font-size: 24px; font-weight: 700; margin: 0 0 8px 0;">You've been invited</h1>
+    <p style="color: #6b7280; font-size: 16px; line-height: 1.5; margin: 0 0 24px 0;">
+      <strong style="color: #111827;">${safeInviter}</strong> has invited <strong style="color: #111827;">${safeTo}</strong> to join
+      <strong style="color: #111827;">${safeWorkspace}</strong> as <strong style="color: #111827;">${safeRole}</strong>.
+    </p>
+    <a href="${acceptUrl}" style="display: inline-block; background: #8b5cf6; color: #fff; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 16px; text-decoration: none; margin-bottom: 24px;">
+      Accept Invitation
+    </a>
+    <p style="color: #9ca3af; font-size: 14px; margin: 0;">
+      This invitation expires in 48 hours. If you weren't expecting this, you can ignore it.
+    </p>
+  </div>
+</body>
+</html>`;
+
   return getResend().emails.send({
-    from: "TeamKit <noreply@teamkit.threestack.io>",
+    from: "TeamKit <noreply@teamkit.io>",
     to,
-    subject: `You've been invited to ${safeWorkspace} as ${safeRole}`,
-    html: `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-        <h2>You've been invited!</h2>
-        <p><strong>${safeInviter}</strong> has invited <strong>${safeTo}</strong> to join <strong>${safeWorkspace}</strong> as a <strong>${safeRole}</strong>.</p>
-        <a href="${acceptUrl}" style="display: inline-block; padding: 12px 24px; background: #7c3aed; color: white; text-decoration: none; border-radius: 6px; margin-top: 16px;">
-          Accept Invitation
-        </a>
-        <p style="color: #6b7280; margin-top: 24px; font-size: 14px;">This invitation expires in 48 hours. If you did not expect this, you can ignore this email.</p>
-      </div>
-    `,
+    subject: `You've been invited to join ${safeWorkspace} as ${safeRole}`,
+    html,
   });
 }
 
-export async function sendInvitationReminderEmail({
-  to,
-  workspaceName,
-  inviterName,
-  role,
-  token,
-}: {
+interface SendInviteReminderParams {
   to: string;
   workspaceName: string;
-  inviterName: string;
   role: string;
-  token: string;
-}) {
-  const acceptUrl = `${process.env.NEXTAUTH_URL}/invite/accept?token=${token}`;
+  acceptUrl: string;
+}
+
+export async function sendInviteReminderEmail(params: SendInviteReminderParams) {
+  const { to, workspaceName, role, acceptUrl } = params;
+
   const safeWorkspace = escapeHtml(workspaceName);
-  const safeInviter = escapeHtml(inviterName);
   const safeRole = escapeHtml(role);
-  const safeTo = escapeHtml(to);
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Reminder: Invitation to ${safeWorkspace}</title></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f9fafb; margin: 0; padding: 40px 20px;">
+  <div style="max-width: 480px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 40px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+    <h1 style="color: #111827; font-size: 24px; font-weight: 700; margin: 0 0 8px 0;">Reminder: Pending Invitation</h1>
+    <p style="color: #6b7280; font-size: 16px; line-height: 1.5; margin: 0 0 24px 0;">
+      You have a pending invitation to join <strong style="color: #111827;">${safeWorkspace}</strong> as
+      <strong style="color: #111827;">${safeRole}</strong>. This invitation expires in 24 hours.
+    </p>
+    <a href="${acceptUrl}" style="display: inline-block; background: #8b5cf6; color: #fff; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 16px; text-decoration: none;">
+      Accept Invitation
+    </a>
+  </div>
+</body>
+</html>`;
 
   return getResend().emails.send({
-    from: "TeamKit <noreply@teamkit.threestack.io>",
+    from: "TeamKit <noreply@teamkit.io>",
     to,
-    subject: `Reminder: You've been invited to ${safeWorkspace}`,
-    html: `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-        <h2>Reminder: Pending Invitation</h2>
-        <p>This is a reminder that <strong>${safeInviter}</strong> has invited <strong>${safeTo}</strong> to join <strong>${safeWorkspace}</strong> as a <strong>${safeRole}</strong>.</p>
-        <a href="${acceptUrl}" style="display: inline-block; padding: 12px 24px; background: #7c3aed; color: white; text-decoration: none; border-radius: 6px; margin-top: 16px;">
-          Accept Invitation
-        </a>
-        <p style="color: #6b7280; margin-top: 24px; font-size: 14px;">This invitation expires soon. If you did not expect this, you can ignore this email.</p>
-      </div>
-    `,
+    subject: `Reminder: You're invited to join ${safeWorkspace}`,
+    html,
   });
 }
 
-export async function sendInvitationExpiredEmail({
-  to,
-  workspaceName,
-}: {
+interface SendInviteExpiredParams {
   to: string;
   workspaceName: string;
-}) {
+}
+
+export async function sendInviteExpiredEmail(params: SendInviteExpiredParams) {
+  const { to, workspaceName } = params;
   const safeWorkspace = escapeHtml(workspaceName);
 
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Invitation Expired</title></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f9fafb; margin: 0; padding: 40px 20px;">
+  <div style="max-width: 480px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 40px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+    <h1 style="color: #111827; font-size: 24px; font-weight: 700; margin: 0 0 8px 0;">Invitation Expired</h1>
+    <p style="color: #6b7280; font-size: 16px; line-height: 1.5; margin: 0;">
+      Your invitation to join <strong style="color: #111827;">${safeWorkspace}</strong> has expired.
+      Please ask a workspace admin to send you a new invitation.
+    </p>
+  </div>
+</body>
+</html>`;
+
   return getResend().emails.send({
-    from: "TeamKit <noreply@teamkit.threestack.io>",
+    from: "TeamKit <noreply@teamkit.io>",
     to,
     subject: `Your invitation to ${safeWorkspace} has expired`,
-    html: `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-        <h2>Invitation Expired</h2>
-        <p>Your invitation to join <strong>${safeWorkspace}</strong> has expired.</p>
-        <p style="color: #6b7280; font-size: 14px;">If you'd still like to join, please ask the workspace admin to send a new invitation.</p>
-      </div>
-    `,
+    html,
   });
 }

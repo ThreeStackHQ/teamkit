@@ -1,49 +1,45 @@
+import { NextRequest } from "next/server";
 import { db, auditLogs } from "@teamkit/db";
 
-export type AuditAction =
-  | "member_invited"
-  | "member_accepted"
-  | "member_removed"
-  | "role_changed"
-  | "api_key_created"
-  | "api_key_revoked"
-  | "plan_changed"
-  | "workspace_updated"
-  | "workspace_created"
-  | "invite_cancelled"
-  | "custom_role_created"
-  | "custom_role_updated"
-  | "custom_role_deleted";
+export const AuditAction = {
+  MEMBER_INVITED: "member.invited",
+  MEMBER_REMOVED: "member.removed",
+  MEMBER_ROLE_CHANGED: "member.role_changed",
+  INVITE_ACCEPTED: "invite.accepted",
+  INVITE_REVOKED: "invite.revoked",
+  ROLE_CREATED: "role.created",
+  ROLE_DELETED: "role.deleted",
+} as const;
 
-export async function createAuditLog({
-  workspaceId,
-  actorId,
-  action,
-  targetType,
-  targetId,
-  metadata,
-  ipAddress,
-}: {
+export type AuditActionType = (typeof AuditAction)[keyof typeof AuditAction];
+
+interface LogEventParams {
   workspaceId: string;
-  actorId?: string;
-  action: AuditAction;
-  targetType?: string;
-  targetId?: string;
+  actorId?: string | null;
+  action: AuditActionType;
+  resourceType?: string;
+  resourceId?: string;
   metadata?: Record<string, unknown>;
-  ipAddress?: string;
-}) {
-  try {
-    await db.insert(auditLogs).values({
-      workspaceId,
-      actorId: actorId ?? null,
-      action,
-      targetType: targetType ?? null,
-      targetId: targetId ?? null,
-      metadata: metadata ?? {},
-      ipAddress: ipAddress ?? null,
-    });
-  } catch (error) {
-    // Audit log failures should never break the main flow
-    console.error("Failed to create audit log:", error);
-  }
+  req?: NextRequest;
+}
+
+export async function logEvent(params: LogEventParams): Promise<void> {
+  const { workspaceId, actorId, action, resourceType, resourceId, metadata, req } = params;
+
+  const ipAddress =
+    req?.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    req?.headers.get("x-real-ip") ??
+    undefined;
+  const userAgent = req?.headers.get("user-agent") ?? undefined;
+
+  await db.insert(auditLogs).values({
+    workspaceId,
+    actorId: actorId ?? null,
+    action,
+    resourceType: resourceType ?? null,
+    resourceId: resourceId ?? null,
+    metadata: metadata ?? {},
+    ipAddress: ipAddress ?? null,
+    userAgent: userAgent ?? null,
+  });
 }

@@ -1,65 +1,76 @@
-export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { db, subscriptions, users } from "@teamkit/db";
 import { eq } from "drizzle-orm";
-import { getStripe, PLANS, PlanName } from "@/lib/stripe";
-import { z } from "zod";
+import { db, workspaces } from "@teamkit/db";
+import { getStripe } from "@/lib/stripe";
+import { getServerSession } from "@/lib/auth";
+import { env } from "@/lib/env";
 
-const schema = z.object({
-  plan: z.enum(["indie", "pro"]),
-});
-
+// POST /api/stripe/checkout
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  const workspaceId = (session as any)?.workspaceId;
-  const userId = (session as any)?.userId;
-
-  if (!session || !workspaceId) {
+  const session = await getServerSession();
+  if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await req.json().catch(() => ({}));
-  const parsed = schema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
+  const body = await req.json().catch(() => ({})) as {
+    plan?: "indie" | "pro";
+    workspaceId?: string;
+  };
+
+  const { plan, workspaceId } = body;
+
+  if (!plan || !["indie", "pro"].includes(plan)) {
+    return NextResponse.json({ error: "plan must be 'indie' or 'pro'" }, { status: 400 });
   }
 
-  const { plan } = parsed.data;
-  const planConfig = PLANS[plan as PlanName];
-  if (!planConfig?.priceId) {
-    return NextResponse.json({ error: "Invalid plan configuration" }, { status: 400 });
+  if (!workspaceId) {
+    return NextResponse.json({ error: "workspaceId is required" }, { status: 400 });
   }
+
+  const [workspace] = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
+    .limit(1);
+
+  if (!workspace) {
+    return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+  }
+
+  const userId = (session.user as { id?: string }).id;
+  if (workspace.ownerId !== userId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const priceId =
+    plan === "indie" ? env.STRIPE_PRICE_INDIE : env.STRIPE_PRICE_PRO;
 
   const stripe = getStripe();
 
   // Get or create Stripe customer
-  const sub = await db.query.subscriptions.findFirst({
-    where: eq(subscriptions.workspaceId, workspaceId),
-  });
-
-  const user = await db.query.users.findFirst({
-    where: eq(users.id, userId),
-  });
-
-  let customerId = sub?.stripeCustomerId;
+  let customerId = workspace.stripeCustomerId;
   if (!customerId) {
     const customer = await stripe.customers.create({
-      email: user?.email ?? undefined,
-      name: user?.name ?? undefined,
-      metadata: { workspaceId },
+      email: session.user.email ?? undefined,
+      name: session.user.name ?? undefined,
+      metadata: { workspaceId, plan },
     });
     customerId = customer.id;
+
+    await db
+      .update(workspaces)
+      .set({ stripeCustomerId: customerId })
+      .where(eq(workspaces.id, workspaceId));
   }
 
   const checkoutSession = await stripe.checkout.sessions.create({
     customer: customerId,
     mode: "subscription",
-    line_items: [{ price: planConfig.priceId, quantity: 1 }],
-    success_url: `${process.env.NEXTAUTH_URL}/dashboard?upgraded=true`,
-    cancel_url: `${process.env.NEXTAUTH_URL}/dashboard/billing`,
+    payment_method_types: ["card"],
+    line_items: [{ price: priceId, quantity: 1 }],
+    success_url: `${env.NEXT_PUBLIC_APP_URL}/dashboard/billing?success=1`,
+    cancel_url: `${env.NEXT_PUBLIC_APP_URL}/dashboard/billing?canceled=1`,
     metadata: { workspaceId, plan },
-    subscription_data: { metadata: { workspaceId, plan } },
   });
 
   return NextResponse.json({ url: checkoutSession.url });
